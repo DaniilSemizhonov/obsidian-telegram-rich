@@ -49,7 +49,7 @@ const price = "$5"; // [[не ссылка]]
 async function main(): Promise<void> {
 	const client = new TelegramClient(token, http);
 	const build = (v: string) => {
-		const r = convert(note(v), { resolveLink: (p) => (p === "test.png" ? image : null) });
+		const r = convert(note(v), { paragraphGap: true, resolveLink: (p) => (p === "test.png" ? image : null) });
 		const rich: InputRichMessage = { markdown: r.markdown };
 		if (r.media.length) rich.media = r.media.map((m) => ({ id: m.id, media: { type: m.kind, media: `attach://${m.id}` } }));
 		const files = r.media.map((m) => {
@@ -61,12 +61,13 @@ async function main(): Promise<void> {
 
 	const first = build("v1");
 	console.log(first.r.markdown, "\n---", first.r.warnings);
-	const msg = await client.sendRichMessage({ chatId: chat }, first.rich, first.files);
+	const msg = await client.sendRichMessage({ chatId: chat }, first.rich, first.files, true);
 	console.log("sent", msg.chat.id, msg.message_id);
+	console.log(JSON.stringify((msg as unknown as { rich_message?: unknown }).rich_message, null, 1));
 
 	const second = build("v2 — отредактировано");
-	await client.editRichMessage(msg.chat.id, msg.message_id, second.rich, second.files);
-	console.log("edited");
+	const edited = await client.editRichMessage(msg.chat.id, msg.message_id, second.rich, second.files);
+	console.log("edited", edited === true ? "" : JSON.stringify((edited as unknown as { rich_message?: { blocks: unknown[] } }).rich_message?.blocks?.[0]));
 }
 
 main().catch((e: unknown) => {
