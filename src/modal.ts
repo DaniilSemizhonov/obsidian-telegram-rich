@@ -53,6 +53,16 @@ export class SendModal extends Modal {
 		this.previewEl = right.createEl("pre", { cls: "tg-rich-preview" });
 
 		const buttons = contentEl.createDiv("tg-rich-buttons");
+		const tidy = buttons.createEl("label", { cls: "tg-rich-tidy" });
+		const tidyBox = tidy.createEl("input", { type: "checkbox" });
+		tidyBox.checked = this.plugin.settings.tidyWhitespace;
+		tidy.appendText("Убирать лишние пустые строки и пробелы");
+		tidyBox.onchange = async () => {
+			this.plugin.settings.tidyWhitespace = tidyBox.checked;
+			await this.plugin.saveSettings();
+			this.refresh();
+		};
+
 		new ButtonComponent(buttons).setButtonText("Скопировать").onClick(async () => {
 			await navigator.clipboard.writeText(this.markdown);
 			new Notice("Rich Markdown скопирован");

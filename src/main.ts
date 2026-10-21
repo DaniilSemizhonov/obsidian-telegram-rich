@@ -112,8 +112,16 @@ export default class TelegramRichPlugin extends Plugin {
 		return convert(text, {
 			highlightAsBold: this.settings.highlightAsBold,
 			embedExternalMedia: this.settings.embedExternalMedia,
+			tidyWhitespace: this.settings.tidyWhitespace,
+			lineBreaks: !this.strictLineBreaks(),
 			resolveLink: (lp) => this.app.metadataCache.getFirstLinkpathDest(lp, file.path)?.path ?? null,
 		});
+	}
+
+	/** Настройка Obsidian «Строгие переносы строк»: без неё одиночный Enter — новая строка */
+	private strictLineBreaks(): boolean {
+		const vault = this.app.vault as unknown as { getConfig?: (key: string) => unknown };
+		return vault.getConfig?.("strictLineBreaks") === true;
 	}
 
 	/** Сохранённое во frontmatter сообщение, если есть */

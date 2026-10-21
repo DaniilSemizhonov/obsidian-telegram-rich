@@ -75,9 +75,20 @@
 
 .tg-rich-buttons {
 	display: flex;
+	align-items: center;
 	justify-content: flex-end;
+	flex-wrap: wrap;
 	gap: 8px;
 	margin-top: 12px;
+}
+
+.tg-rich-tidy {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin-right: auto;
+	font-size: var(--font-ui-small);
+	cursor: pointer;
 }
 
 @media (max-width: 700px) {

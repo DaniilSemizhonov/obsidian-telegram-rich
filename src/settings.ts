@@ -8,6 +8,7 @@ export interface Settings {
 	threadId: string;
 	highlightAsBold: boolean;
 	embedExternalMedia: boolean;
+	tidyWhitespace: boolean;
 	silent: boolean;
 }
 
@@ -17,6 +18,7 @@ export const DEFAULT_SETTINGS: Settings = {
 	threadId: "",
 	highlightAsBold: false,
 	embedExternalMedia: true,
+	tidyWhitespace: true,
 	silent: false,
 };
 
@@ -104,6 +106,16 @@ export class SettingsTab extends PluginSettingTab {
 			.addToggle((t) =>
 				t.setValue(s.highlightAsBold).onChange(async (v) => {
 					s.highlightAsBold = v;
+					await this.plugin.saveSettings();
+				}),
+			);
+
+		new Setting(containerEl)
+			.setName("Убирать лишние пустые строки и пробелы")
+			.setDesc("Несколько пустых строк подряд станут одной, двойные пробелы — одинарными. Выключите, чтобы сохранить отступы как в заметке. Переключается и в окне предпросмотра.")
+			.addToggle((t) =>
+				t.setValue(s.tidyWhitespace).onChange(async (v) => {
+					s.tidyWhitespace = v;
 					await this.plugin.saveSettings();
 				}),
 			);

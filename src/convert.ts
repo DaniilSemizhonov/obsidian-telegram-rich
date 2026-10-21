@@ -22,6 +22,10 @@ export interface ConvertOptions {
 	embedExternalMedia?: boolean;
 	/** Ищет вложение по ссылке из заметки, возвращает путь в хранилище или null */
 	resolveLink?: (linkpath: string) => string | null;
+	/** Сжимать пустые строки и двойные пробелы; иначе лишние пустые строки сохраняются отступами */
+	tidyWhitespace?: boolean;
+	/** Одиночный перенос строки — новая строка, как в Obsidian без «строгих переносов» */
+	lineBreaks?: boolean;
 }
 
 export interface ConvertResult {
@@ -77,12 +81,17 @@ class Vault {
 		this.items.push(text);
 		return `\u0000${this.items.length - 1}\u0000`;
 	}
+	/** целая строка блока кода/формулы — помечается отдельно, чтобы её не трогали переносы */
+	putBlock(text: string): string {
+		this.items.push(text);
+		return `\u0002${this.items.length - 1}\u0002`;
+	}
 	restore(text: string): string {
 		// фрагменты могут вкладываться (код внутри уже защищённого куска), поэтому до упора
 		let prev = "";
 		while (prev !== text) {
 			prev = text;
-			text = text.replace(/\u0000(\d+)\u0000/g, (_, i: string) => this.items[Number(i)]);
+			text = text.replace(/[\u0000\u0002](\d+)[\u0000\u0002]/g, (_, i: string) => this.items[Number(i)]);
 		}
 		return text;
 	}
@@ -136,12 +145,12 @@ function protectFences(lines: string[], vault: Vault): string[] {
 			i = closed ? j : j - 1;
 			continue;
 		}
-		out.push(prefix + vault.put(rest));
+		out.push(prefix + vault.putBlock(rest));
 		for (const b of body) {
 			const s = stripQuotes(b, depth)!;
-			out.push(s.prefix + vault.put(s.rest));
+			out.push(s.prefix + vault.putBlock(s.rest));
 		}
-		out.push(prefix + vault.put(open[1] + fence));
+		out.push(prefix + vault.putBlock(open[1] + fence));
 		i = closed ? j : j - 1;
 	}
 	return out;
@@ -181,9 +190,9 @@ function convertBlockMath(lines: string[], vault: Vault): string[] {
 			out.push(lines[i]);
 			continue;
 		}
-		out.push(prefix + vault.put("```math"));
-		for (const b of body) out.push(prefix + vault.put(b));
-		out.push(prefix + vault.put("```"));
+		out.push(prefix + vault.putBlock("```math"));
+		for (const b of body) out.push(prefix + vault.putBlock(b));
+		out.push(prefix + vault.putBlock("```"));
 		if (tail) out.push(prefix + tail);
 		i = j;
 	}
@@ -263,12 +272,10 @@ class Converter {
 		lines = this.placeMedia(text.split("\n"));
 		lines = this.callouts(lines);
 		lines = stripTrailingTags(lines);
+		lines = spacing(lines, this.opts.tidyWhitespace ?? true, this.opts.lineBreaks ?? true);
 		this.checkTables(lines);
 
-		const markdown = this.vault
-			.restore(lines.join("\n"))
-			.replace(/\n{3,}/g, "\n\n")
-			.trim();
+		const markdown = this.vault.restore(lines.join("\n")).trim();
 		const length = [...markdown].length;
 		if (length > MAX_LENGTH) {
 			this.warnings.push(`Текст длиннее лимита: ${length} из ${MAX_LENGTH} символов`);
@@ -439,6 +446,65 @@ class Converter {
 			}
 		}
 	}
+}
+
+const restOf = (line: string): string => line.slice(QUOTE_PREFIX.exec(line)![0].length);
+const isBlank = (line: string): boolean => !restOf(line).trim();
+
+/** Строка — самостоятельный блок, к которому перенос не относится */
+function isBlockLine(rest: string): boolean {
+	return (
+		rest.includes("\u0002") ||
+		/^\s*(#{1,6}\s|\||<|!\[\]\(|\[\^[^\]]+\]:)/.test(rest) ||
+		/^\s*([-*_])(\s*\1){2,}\s*$/.test(rest) ||
+		/^\s*=+\s*$/.test(rest)
+	);
+}
+
+/** Пустые строки, пробелы и одиночные переносы */
+function spacing(lines: string[], tidy: boolean, breaks: boolean): string[] {
+	// хвостовые пробелы: два и больше — явный перенос Markdown, их оставляем ровно два
+	lines = lines.map((l) => {
+		if (l.includes("\u0002") || isBlank(l)) return isBlank(l) ? l.trimEnd() : l;
+		const prefix = QUOTE_PREFIX.exec(l)![0];
+		let rest = l.slice(prefix.length);
+		const hard = / {2,}$/.test(rest);
+		rest = rest.trimEnd();
+		if (tidy) rest = rest.replace(/(\S)[ \t]{2,}(?=\S)/g, "$1 ");
+		return prefix + rest + (hard ? "  " : "");
+	});
+
+	const out: string[] = [];
+	for (let i = 0; i < lines.length; ) {
+		if (!isBlank(lines[i])) {
+			out.push(lines[i++]);
+			continue;
+		}
+		let j = i;
+		while (j < lines.length && isBlank(lines[j])) j++;
+		if (out.length && j < lines.length) {
+			const blank = lines[i];
+			out.push(blank);
+			if (!tidy) {
+				// каждая лишняя пустая строка — пустой абзац, иначе Markdown их схлопнет
+				for (let k = i + 1; k < j; k++) out.push(blank ? `${blank} &nbsp;` : "&nbsp;", blank);
+			}
+		}
+		i = j;
+	}
+
+	if (breaks) {
+		for (let i = 0; i + 1 < out.length; i++) {
+			const cur = out[i];
+			const next = out[i + 1];
+			if (isBlank(cur) || isBlank(next) || cur.endsWith("  ")) continue;
+			if (quoteDepth(QUOTE_PREFIX.exec(cur)![0]) !== quoteDepth(QUOTE_PREFIX.exec(next)![0])) continue;
+			if (isBlockLine(restOf(cur)) || isBlockLine(restOf(next))) continue;
+			if (/^\s*([-*+]|\d+[.)])\s/.test(restOf(next))) continue;
+			out[i] = cur + "  ";
+		}
+	}
+	return out;
 }
 
 /** Строки, состоящие только из #тегов, в конце заметки */
