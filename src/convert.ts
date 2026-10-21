@@ -98,6 +98,7 @@ class Vault {
 }
 
 const QUOTE_PREFIX = /^[ \t]*(?:>[ \t]?)*/;
+const TABLE_DELIM = /^\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?$/;
 
 function quoteDepth(prefix: string): number {
 	return (prefix.match(/>/g) ?? []).length;
@@ -439,7 +440,7 @@ class Converter {
 	private checkTables(lines: string[]): void {
 		for (const line of lines) {
 			const rest = line.slice(QUOTE_PREFIX.exec(line)![0].length).trim();
-			if (!/^\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)+\|?$/.test(rest)) continue;
+			if (!TABLE_DELIM.test(rest)) continue;
 			const cols = rest.replace(/^\||\|$/g, "").split("|").length;
 			if (cols > MAX_TABLE_COLUMNS) {
 				this.warnings.push(`В таблице ${cols} колонок, Telegram принимает до ${MAX_TABLE_COLUMNS}`);
@@ -491,6 +492,19 @@ function spacing(lines: string[], tidy: boolean, breaks: boolean): string[] {
 			}
 		}
 		i = j;
+	}
+
+	// Telegram затягивает заголовок или таблицу сразу после пункта списка внутрь пункта,
+	// поэтому перед ними всегда пустая строка
+	for (let i = 1; i < out.length; i++) {
+		const rest = restOf(out[i]);
+		if (rest.includes("\u0002") || isBlank(out[i - 1])) continue;
+		const heading = /^ {0,3}#{1,6}\s/.test(rest);
+		const table = /^\s*\|/.test(rest) && !/^\s*\|/.test(restOf(out[i - 1])) && TABLE_DELIM.test(restOf(out[i + 1] ?? "").trim());
+		if (heading || table) {
+			out.splice(i, 0, QUOTE_PREFIX.exec(out[i])![0].trimEnd());
+			i++;
+		}
 	}
 
 	if (breaks) {
