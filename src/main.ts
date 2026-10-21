@@ -1,7 +1,7 @@
 import { MarkdownView, Notice, Plugin, requestUrl, TAbstractFile, TFile } from "obsidian";
 import { convert, ConvertResult, extOf, MAX_LENGTH, MAX_MEDIA } from "./convert";
 import { SendModal } from "./modal";
-import { DEFAULT_SETTINGS, Settings, SettingsTab } from "./settings";
+import { DEFAULT_SETTINGS, Settings, SettingsTab, TOKEN_SECRET } from "./settings";
 import { HttpFn, InputRichMessage, mimeOf, TelegramClient, TelegramError, UploadFile } from "./telegram";
 
 const MB = 1024 * 1024;
@@ -31,14 +31,9 @@ export default class TelegramRichPlugin extends Plugin {
 		this.addSettingTab(new SettingsTab(this.app, this));
 
 		this.addCommand({
-			id: "send-note",
-			name: "Отправить заметку в Telegram",
-			checkCallback: (checking) => this.withActiveNote(checking, (f) => this.sendNote(f, { track: true })),
-		});
-		this.addCommand({
-			id: "send-note-new",
-			name: "Отправить заметку в Telegram как новое сообщение",
-			checkCallback: (checking) => this.withActiveNote(checking, (f) => this.sendNote(f, { track: true, forceNew: true })),
+			id: "send",
+			name: "Отправить в Telegram",
+			checkCallback: (checking) => this.withActiveNote(checking, (f) => this.openModal(f)),
 		});
 		this.addCommand({
 			id: "send-selection",
@@ -49,17 +44,10 @@ export default class TelegramRichPlugin extends Plugin {
 				return true;
 			},
 		});
-		this.addCommand({
-			id: "preview",
-			name: "Предпросмотр и выбор разделов для Telegram",
-			checkCallback: (checking) => this.withActiveNote(checking, (f) => this.openModal(f)),
-		});
-
 		this.registerEvent(
 			this.app.workspace.on("file-menu", (menu, file: TAbstractFile) => {
 				if (!(file instanceof TFile) || file.extension !== "md") return;
-				menu.addItem((i) => i.setTitle("Отправить в Telegram").setIcon("send").onClick(() => this.sendNote(file, { track: true })));
-				menu.addItem((i) => i.setTitle("Telegram: выбрать разделы…").setIcon("list-checks").onClick(() => this.openModal(file)));
+				menu.addItem((i) => i.setTitle("Отправить в Telegram").setIcon("send").onClick(() => this.openModal(file)));
 			}),
 		);
 		this.registerEvent(
@@ -74,16 +62,48 @@ export default class TelegramRichPlugin extends Plugin {
 	}
 
 	async loadSettings(): Promise<void> {
-		this.settings = { ...DEFAULT_SETTINGS, ...((await this.loadData()) as Partial<Settings> | null) };
+		const data = ((await this.loadData()) ?? {}) as Partial<Settings> & { tokenSecret?: string };
+		// 1.x: токен лежал в секрете с именем из настроек — переносим под постоянное имя
+		if (data.tokenSecret && !this.token()) {
+			const old = this.app.secretStorage.getSecret(data.tokenSecret);
+			if (old) this.app.secretStorage.setSecret(TOKEN_SECRET, old);
+		}
+		this.settings = {
+			chatId: data.chatId ?? DEFAULT_SETTINGS.chatId,
+			chatBotId: data.chatBotId ?? DEFAULT_SETTINGS.chatBotId,
+			tidyWhitespace: data.tidyWhitespace ?? DEFAULT_SETTINGS.tidyWhitespace,
+			paragraphGap: data.paragraphGap ?? DEFAULT_SETTINGS.paragraphGap,
+		};
 	}
 
 	async saveSettings(): Promise<void> {
 		await this.saveData(this.settings);
 	}
 
+	token(): string {
+		return this.app.secretStorage.getSecret(TOKEN_SECRET)?.trim() ?? "";
+	}
+
+	setToken(value: string): void {
+		this.app.secretStorage.setSecret(TOKEN_SECRET, value.trim());
+	}
+
 	client(): TelegramClient {
-		const token = this.settings.tokenSecret ? this.app.secretStorage.getSecret(this.settings.tokenSecret) : null;
-		return new TelegramClient(token?.trim() ?? "", http);
+		return new TelegramClient(this.token(), http);
+	}
+
+	/** Личный чат: тот, кто последним писал боту. Находится один раз и запоминается */
+	private async chatId(client: TelegramClient): Promise<string> {
+		const botId = this.token().split(":")[0];
+		if (this.settings.chatId && this.settings.chatBotId === botId) return this.settings.chatId;
+		const chats = await client.recentPrivateChats();
+		if (!chats.length) {
+			throw new Error("Бот не знает, кому писать. Отправьте ему /start в Telegram и повторите.");
+		}
+		this.settings.chatId = String(chats[0].id);
+		this.settings.chatBotId = botId;
+		await this.saveSettings();
+		return this.settings.chatId;
 	}
 
 	showError(e: unknown): void {
@@ -110,8 +130,6 @@ export default class TelegramRichPlugin extends Plugin {
 
 	convertFor(file: TFile, text: string): ConvertResult {
 		return convert(text, {
-			highlightAsBold: this.settings.highlightAsBold,
-			embedExternalMedia: this.settings.embedExternalMedia,
 			tidyWhitespace: this.settings.tidyWhitespace,
 			paragraphGap: this.settings.paragraphGap,
 			lineBreaks: !this.strictLineBreaks(),
@@ -138,15 +156,10 @@ export default class TelegramRichPlugin extends Plugin {
 		new SendModal(this, file, await this.readNote(file)).open();
 	}
 
-	async sendNote(file: TFile, opts: PublishOptions): Promise<void> {
-		await this.publish(file, await this.readNote(file), opts);
-	}
-
 	async publish(file: TFile, text: string, opts: PublishOptions): Promise<boolean> {
-		const s = this.settings;
 		const prev = opts.track && !opts.forceNew ? this.published(file) : null;
-		if (!prev && !s.chatId) {
-			new Notice("Укажите chat_id в настройках плагина «Telegram-статьи»");
+		if (!this.token()) {
+			new Notice("Вставьте токен бота в настройках плагина «Telegram-статьи»");
 			return false;
 		}
 
@@ -157,7 +170,7 @@ export default class TelegramRichPlugin extends Plugin {
 		}
 		if (result.length > MAX_LENGTH) {
 			new Notice(
-				`Не отправлено: ${result.length} символов при лимите ${MAX_LENGTH}. Уберите часть текста или отправьте разделами через «Предпросмотр и выбор разделов».`,
+				`Не отправлено: ${result.length} символов при лимите ${MAX_LENGTH}. Снимите галочки с части разделов.`,
 				15000,
 			);
 			return false;
@@ -184,18 +197,12 @@ export default class TelegramRichPlugin extends Plugin {
 					if (e instanceof TelegramError && e.notModified) {
 						new Notice("В Telegram уже актуальная версия");
 					} else if (e instanceof TelegramError && e.messageGone) {
-						new Notice(`Telegram: ${e.description}\nСообщение не найти — используйте «Отправить как новое сообщение».`, 15000);
+						new Notice(`Telegram: ${e.description}\nСообщение не найти — нажмите «Отправить как новое».`, 15000);
 						return false;
 					} else throw e;
 				}
 			} else {
-				const threadId = Number(s.threadId);
-				const msg = await client.sendRichMessage(
-					{ chatId: s.chatId, threadId: s.threadId && Number.isInteger(threadId) ? threadId : undefined },
-					rich,
-					files,
-					s.silent,
-				);
+				const msg = await client.sendRichMessage({ chatId: await this.chatId(client) }, rich, files);
 				if (opts.track) {
 					await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
 						fm.tg_chat_id = msg.chat.id;
