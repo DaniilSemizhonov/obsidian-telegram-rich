@@ -1,0 +1,94 @@
+.tg-rich-modal {
+	width: min(1000px, 92vw);
+}
+
+.tg-rich-body {
+	display: flex;
+	gap: 16px;
+	height: 60vh;
+}
+
+.tg-rich-tree {
+	flex: 0 0 260px;
+	overflow-y: auto;
+	border-right: 1px solid var(--background-modifier-border);
+	padding-right: 8px;
+}
+
+.tg-rich-tree-tools {
+	font-size: var(--font-ui-smaller);
+	margin-bottom: 6px;
+}
+
+.tg-rich-tree-tools a {
+	cursor: pointer;
+}
+
+.tg-rich-row {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 2px 0;
+	cursor: pointer;
+}
+
+.tg-rich-preamble {
+	color: var(--text-muted);
+	font-style: italic;
+}
+
+.tg-rich-right {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+
+.tg-rich-info {
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+	margin-bottom: 4px;
+}
+
+.tg-rich-over {
+	color: var(--text-error);
+	font-weight: 600;
+}
+
+.tg-rich-warn {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-warning);
+}
+
+.tg-rich-preview {
+	flex: 1;
+	overflow: auto;
+	margin: 6px 0 0;
+	padding: 8px;
+	background: var(--background-secondary);
+	border-radius: var(--radius-s);
+	white-space: pre-wrap;
+	word-break: break-word;
+	font-size: var(--font-ui-small);
+	user-select: text;
+}
+
+.tg-rich-buttons {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+	margin-top: 12px;
+}
+
+@media (max-width: 700px) {
+	.tg-rich-body {
+		flex-direction: column;
+		height: 70vh;
+	}
+
+	.tg-rich-tree {
+		flex: 0 0 30%;
+		border-right: none;
+		border-bottom: 1px solid var(--background-modifier-border);
+	}
+}

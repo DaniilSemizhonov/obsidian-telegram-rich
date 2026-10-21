@@ -1,0 +1,20 @@
+{
+  "name": "obsidian-telegram-rich",
+  "version": "1.0.0",
+  "description": "Telegram-статьи — отправка заметок Obsidian в Telegram как Rich Message",
+  "main": "main.js",
+  "scripts": {
+    "build": "esbuild src/main.ts --bundle --format=cjs --platform=browser --target=es2020 --external:obsidian --outfile=main.js",
+    "check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "type": "commonjs",
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "esbuild": "^0.28.2",
+    "obsidian": "^1.14.4",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  },
+  "license": "MIT"
+}
