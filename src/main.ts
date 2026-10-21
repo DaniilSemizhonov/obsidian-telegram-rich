@@ -113,6 +113,7 @@ export default class TelegramRichPlugin extends Plugin {
 			highlightAsBold: this.settings.highlightAsBold,
 			embedExternalMedia: this.settings.embedExternalMedia,
 			tidyWhitespace: this.settings.tidyWhitespace,
+			paragraphGap: this.settings.paragraphGap,
 			lineBreaks: !this.strictLineBreaks(),
 			resolveLink: (lp) => this.app.metadataCache.getFirstLinkpathDest(lp, file.path)?.path ?? null,
 		});

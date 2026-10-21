@@ -9,7 +9,7 @@ const http: HttpFn = async (req) => {
 };
 
 async function main(): Promise<void> {
-	const { markdown } = convert(readFileSync(process.argv[2], "utf8"));
+	const { markdown } = convert(readFileSync(process.argv[2], "utf8"), { paragraphGap: process.env.GAP !== "0" });
 	const client = new TelegramClient(process.env.TG_TOKEN ?? "", http);
 	const msg = await client.call<{ message_id: number; rich_message?: unknown }>("sendRichMessage", {
 		chat_id: process.env.TG_CHAT,

@@ -1,7 +1,7 @@
 {
 	"id": "telegram-rich",
 	"name": "Telegram-статьи",
-	"version": "1.1.1",
+	"version": "1.2.0",
 	"minAppVersion": "1.11.4",
 	"description": "Отправляет заметку или её часть в Telegram как Rich Message: заголовки, таблицы, callout'ы, формулы, картинки. Повторная отправка обновляет сообщение.",
 	"author": "Daniil Semizhonov",

@@ -26,6 +26,8 @@ export interface ConvertOptions {
 	tidyWhitespace?: boolean;
 	/** Одиночный перенос строки — новая строка, как в Obsidian без «строгих переносов» */
 	lineBreaks?: boolean;
+	/** Пустой абзац между абзацами: Telegram рисует соседние абзацы почти вплотную */
+	paragraphGap?: boolean;
 }
 
 export interface ConvertResult {
@@ -98,6 +100,7 @@ class Vault {
 }
 
 const QUOTE_PREFIX = /^[ \t]*(?:>[ \t]?)*/;
+const LIST_ITEM = /^\s*([-*+]|\d+[.)])\s/;
 const TABLE_DELIM = /^\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?$/;
 
 function quoteDepth(prefix: string): number {
@@ -273,7 +276,7 @@ class Converter {
 		lines = this.placeMedia(text.split("\n"));
 		lines = this.callouts(lines);
 		lines = stripTrailingTags(lines);
-		lines = spacing(lines, this.opts.tidyWhitespace ?? true, this.opts.lineBreaks ?? true);
+		lines = spacing(lines, this.opts.tidyWhitespace ?? true, this.opts.lineBreaks ?? true, this.opts.paragraphGap ?? false);
 		this.checkTables(lines);
 
 		const markdown = this.vault.restore(lines.join("\n")).trim();
@@ -456,6 +459,7 @@ const isBlank = (line: string): boolean => !restOf(line).trim();
 function isBlockLine(rest: string): boolean {
 	return (
 		rest.includes("\u0002") ||
+		rest.trim() === "&nbsp;" ||
 		/^\s*(#{1,6}\s|\||<|!\[\]\(|\[\^[^\]]+\]:)/.test(rest) ||
 		/^\s*([-*_])(\s*\1){2,}\s*$/.test(rest) ||
 		/^\s*=+\s*$/.test(rest)
@@ -463,7 +467,7 @@ function isBlockLine(rest: string): boolean {
 }
 
 /** Пустые строки, пробелы и одиночные переносы */
-function spacing(lines: string[], tidy: boolean, breaks: boolean): string[] {
+function spacing(lines: string[], tidy: boolean, breaks: boolean, gap: boolean): string[] {
 	// хвостовые пробелы: два и больше — явный перенос Markdown, их оставляем ровно два
 	lines = lines.map((l) => {
 		if (l.includes("\u0002") || isBlank(l)) return isBlank(l) ? l.trimEnd() : l;
@@ -494,6 +498,20 @@ function spacing(lines: string[], tidy: boolean, breaks: boolean): string[] {
 		i = j;
 	}
 
+	if (gap) {
+		// только на верхнем уровне: абзац после абзаца или списка; заголовки, таблицы, код и цитаты
+		// получают отступ от Telegram сами
+		for (let i = 1; i + 1 < out.length; i++) {
+			const prev = out[i - 1];
+			const next = out[i + 1];
+			if (out[i] !== "" || isBlank(prev) || isBlank(next)) continue;
+			if (QUOTE_PREFIX.exec(next)![0] !== "" || isBlockLine(next) || LIST_ITEM.test(next)) continue;
+			if (quoteDepth(QUOTE_PREFIX.exec(prev)![0]) > 0 || (isBlockLine(restOf(prev)) && !LIST_ITEM.test(prev))) continue;
+			out.splice(i + 1, 0, "&nbsp;", "");
+			i += 2;
+		}
+	}
+
 	// Telegram затягивает заголовок или таблицу сразу после пункта списка внутрь пункта,
 	// поэтому перед ними всегда пустая строка
 	for (let i = 1; i < out.length; i++) {
@@ -514,7 +532,7 @@ function spacing(lines: string[], tidy: boolean, breaks: boolean): string[] {
 			if (isBlank(cur) || isBlank(next) || cur.endsWith("  ")) continue;
 			if (quoteDepth(QUOTE_PREFIX.exec(cur)![0]) !== quoteDepth(QUOTE_PREFIX.exec(next)![0])) continue;
 			if (isBlockLine(restOf(cur)) || isBlockLine(restOf(next))) continue;
-			if (/^\s*([-*+]|\d+[.)])\s/.test(restOf(next))) continue;
+			if (LIST_ITEM.test(restOf(next))) continue;
 			out[i] = cur + "  ";
 		}
 	}

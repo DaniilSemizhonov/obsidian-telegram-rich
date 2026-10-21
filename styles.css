@@ -82,11 +82,17 @@
 	margin-top: 12px;
 }
 
+.tg-rich-options {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	margin-right: auto;
+}
+
 .tg-rich-tidy {
 	display: flex;
 	align-items: center;
 	gap: 6px;
-	margin-right: auto;
 	font-size: var(--font-ui-small);
 	cursor: pointer;
 }

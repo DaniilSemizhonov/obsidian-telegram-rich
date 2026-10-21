@@ -9,6 +9,7 @@ export interface Settings {
 	highlightAsBold: boolean;
 	embedExternalMedia: boolean;
 	tidyWhitespace: boolean;
+	paragraphGap: boolean;
 	silent: boolean;
 }
 
@@ -19,6 +20,7 @@ export const DEFAULT_SETTINGS: Settings = {
 	highlightAsBold: false,
 	embedExternalMedia: true,
 	tidyWhitespace: true,
+	paragraphGap: true,
 	silent: false,
 };
 
@@ -116,6 +118,16 @@ export class SettingsTab extends PluginSettingTab {
 			.addToggle((t) =>
 				t.setValue(s.tidyWhitespace).onChange(async (v) => {
 					s.tidyWhitespace = v;
+					await this.plugin.saveSettings();
+				}),
+			);
+
+		new Setting(containerEl)
+			.setName("Отделять абзацы")
+			.setDesc("Telegram рисует соседние абзацы почти вплотную. Включено — между абзацами вставляется пустая строка. Переключается и в окне предпросмотра.")
+			.addToggle((t) =>
+				t.setValue(s.paragraphGap).onChange(async (v) => {
+					s.paragraphGap = v;
 					await this.plugin.saveSettings();
 				}),
 			);

@@ -53,15 +53,9 @@ export class SendModal extends Modal {
 		this.previewEl = right.createEl("pre", { cls: "tg-rich-preview" });
 
 		const buttons = contentEl.createDiv("tg-rich-buttons");
-		const tidy = buttons.createEl("label", { cls: "tg-rich-tidy" });
-		const tidyBox = tidy.createEl("input", { type: "checkbox" });
-		tidyBox.checked = this.plugin.settings.tidyWhitespace;
-		tidy.appendText("Убирать лишние пустые строки и пробелы");
-		tidyBox.onchange = async () => {
-			this.plugin.settings.tidyWhitespace = tidyBox.checked;
-			await this.plugin.saveSettings();
-			this.refresh();
-		};
+		const options = buttons.createDiv("tg-rich-options");
+		this.addToggle(options, "Убирать лишние пустые строки и пробелы", "tidyWhitespace");
+		this.addToggle(options, "Отделять абзацы", "paragraphGap");
 
 		new ButtonComponent(buttons).setButtonText("Скопировать").onClick(async () => {
 			await navigator.clipboard.writeText(this.markdown);
@@ -71,6 +65,19 @@ export class SendModal extends Modal {
 		this.sendBtn = new ButtonComponent(buttons).setCta().onClick(() => this.send(false));
 
 		this.refresh();
+	}
+
+	/** Галочка, которая меняет настройку плагина и сразу обновляет предпросмотр */
+	private addToggle(parent: HTMLElement, text: string, key: "tidyWhitespace" | "paragraphGap"): void {
+		const label = parent.createEl("label", { cls: "tg-rich-tidy" });
+		const box = label.createEl("input", { type: "checkbox" });
+		box.checked = this.plugin.settings[key];
+		label.appendText(text);
+		box.onchange = async () => {
+			this.plugin.settings[key] = box.checked;
+			await this.plugin.saveSettings();
+			this.refresh();
+		};
 	}
 
 	onClose(): void {
