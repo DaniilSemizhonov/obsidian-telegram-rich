@@ -2,21 +2,10 @@ import { MarkdownView, Notice, Plugin, requestUrl, TAbstractFile, TFile } from "
 import { convert, ConvertResult, extOf, MAX_LENGTH, MAX_MEDIA } from "./convert";
 import { SendModal } from "./modal";
 import { DEFAULT_SETTINGS, Settings, SettingsTab, TOKEN_SECRET } from "./settings";
+import { infoMessage } from "./info";
 import { HttpFn, InputRichMessage, mimeOf, TelegramClient, TelegramError, UploadFile } from "./telegram";
 
 const MB = 1024 * 1024;
-
-export interface PublishOptions {
-	/** записывать tg_chat_id/tg_message_id и редактировать по ним при повторной отправке */
-	track: boolean;
-	/** игнорировать сохранённые id и отправить новое сообщение */
-	forceNew?: boolean;
-}
-
-interface Published {
-	chatId: string | number;
-	messageId: number;
-}
 
 const http: HttpFn = async (req) => {
 	const res = await requestUrl({ ...req, throw: false });
@@ -40,7 +29,7 @@ export default class TelegramRichPlugin extends Plugin {
 			name: "Отправить выделенное в Telegram",
 			editorCheckCallback: (checking, editor, ctx) => {
 				if (!editor.somethingSelected() || !ctx.file) return false;
-				if (!checking) void this.publish(ctx.file, editor.getSelection(), { track: false });
+				if (!checking) void this.publish(ctx.file, editor.getSelection());
 				return true;
 			},
 		});
@@ -55,7 +44,7 @@ export default class TelegramRichPlugin extends Plugin {
 				if (!editor.somethingSelected() || !info.file) return;
 				const file = info.file;
 				menu.addItem((i) =>
-					i.setTitle("Отправить выделенное в Telegram").setIcon("send").onClick(() => this.publish(file, editor.getSelection(), { track: false })),
+					i.setTitle("Отправить выделенное в Telegram").setIcon("send").onClick(() => this.publish(file, editor.getSelection())),
 				);
 			}),
 		);
@@ -70,7 +59,6 @@ export default class TelegramRichPlugin extends Plugin {
 		}
 		this.settings = {
 			chatId: data.chatId ?? DEFAULT_SETTINGS.chatId,
-			chatBotId: data.chatBotId ?? DEFAULT_SETTINGS.chatBotId,
 			tidyWhitespace: data.tidyWhitespace ?? DEFAULT_SETTINGS.tidyWhitespace,
 			paragraphGap: data.paragraphGap ?? DEFAULT_SETTINGS.paragraphGap,
 		};
@@ -90,20 +78,6 @@ export default class TelegramRichPlugin extends Plugin {
 
 	client(): TelegramClient {
 		return new TelegramClient(this.token(), http);
-	}
-
-	/** Личный чат: тот, кто последним писал боту. Находится один раз и запоминается */
-	private async chatId(client: TelegramClient): Promise<string> {
-		const botId = this.token().split(":")[0];
-		if (this.settings.chatId && this.settings.chatBotId === botId) return this.settings.chatId;
-		const chats = await client.recentPrivateChats();
-		if (!chats.length) {
-			throw new Error("Бот не знает, кому писать. Отправьте ему /start в Telegram и повторите.");
-		}
-		this.settings.chatId = String(chats[0].id);
-		this.settings.chatBotId = botId;
-		await this.saveSettings();
-		return this.settings.chatId;
 	}
 
 	showError(e: unknown): void {
@@ -143,23 +117,14 @@ export default class TelegramRichPlugin extends Plugin {
 		return vault.getConfig?.("strictLineBreaks") === true;
 	}
 
-	/** Сохранённое во frontmatter сообщение, если есть */
-	published(file: TFile): Published | null {
-		const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
-		const chatId: unknown = fm?.tg_chat_id;
-		const messageId = Number(fm?.tg_message_id);
-		if ((typeof chatId !== "string" && typeof chatId !== "number") || !Number.isInteger(messageId)) return null;
-		return { chatId, messageId };
-	}
-
 	async openModal(file: TFile): Promise<void> {
 		new SendModal(this, file, await this.readNote(file)).open();
 	}
 
-	async publish(file: TFile, text: string, opts: PublishOptions): Promise<boolean> {
-		const prev = opts.track && !opts.forceNew ? this.published(file) : null;
-		if (!this.token()) {
-			new Notice("Вставьте токен бота в настройках плагина «Telegram-статьи»");
+	/** Справка (название заметки, время) и следом пост — всегда новыми сообщениями */
+	async publish(file: TFile, text: string): Promise<boolean> {
+		if (!this.token() || !this.settings.chatId) {
+			new Notice("Заполните токен бота и ваш ID в настройках плагина «Telegram-статьи»");
 			return false;
 		}
 
@@ -180,7 +145,7 @@ export default class TelegramRichPlugin extends Plugin {
 			return false;
 		}
 
-		const progress = new Notice(prev ? "Обновляю сообщение в Telegram…" : "Отправляю в Telegram…", 0);
+		const progress = new Notice("Отправляю в Telegram…", 0);
 		try {
 			const files = await this.loadMedia(result);
 			const rich: InputRichMessage = { markdown: result.markdown };
@@ -189,28 +154,10 @@ export default class TelegramRichPlugin extends Plugin {
 			}
 			const client = this.client();
 
-			if (prev) {
-				try {
-					await client.editRichMessage(prev.chatId, prev.messageId, rich, files);
-					new Notice("Сообщение в Telegram обновлено");
-				} catch (e) {
-					if (e instanceof TelegramError && e.notModified) {
-						new Notice("В Telegram уже актуальная версия");
-					} else if (e instanceof TelegramError && e.messageGone) {
-						new Notice(`Telegram: ${e.description}\nСообщение не найти — нажмите «Отправить как новое».`, 15000);
-						return false;
-					} else throw e;
-				}
-			} else {
-				const msg = await client.sendRichMessage({ chatId: await this.chatId(client) }, rich, files);
-				if (opts.track) {
-					await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
-						fm.tg_chat_id = msg.chat.id;
-						fm.tg_message_id = msg.message_id;
-					});
-				}
-				new Notice("Отправлено в Telegram");
-			}
+			const target = { chatId: this.settings.chatId };
+			await client.sendRichMessage(target, { markdown: infoMessage(file.basename, new Date()) });
+			await client.sendRichMessage(target, rich, files);
+			new Notice("Отправлено в Telegram");
 			if (result.warnings.length) new Notice("Есть замечания:\n• " + result.warnings.join("\n• "), 10000);
 			return true;
 		} catch (e) {

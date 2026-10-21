@@ -12,7 +12,6 @@ export class SendModal extends Modal {
 	private warnEl!: HTMLElement;
 	private previewEl!: HTMLElement;
 	private sendBtn!: ButtonComponent;
-	private newBtn!: ButtonComponent;
 	private markdown = "";
 
 	constructor(
@@ -61,8 +60,7 @@ export class SendModal extends Modal {
 			await navigator.clipboard.writeText(this.markdown);
 			new Notice("Rich Markdown скопирован");
 		});
-		this.newBtn = new ButtonComponent(buttons).setButtonText("Отправить как новое").onClick(() => this.send(true));
-		this.sendBtn = new ButtonComponent(buttons).setCta().onClick(() => this.send(false));
+		this.sendBtn = new ButtonComponent(buttons).setButtonText("Отправить").setCta().onClick(() => this.send());
 
 		this.refresh();
 	}
@@ -126,20 +124,13 @@ export class SendModal extends Modal {
 		this.warnEl.empty();
 		for (const w of r.warnings) this.warnEl.createDiv({ text: "⚠ " + w });
 
-		const prev = this.plugin.published(this.file);
-		const empty = !r.markdown.trim();
 		const tooBig = r.length > MAX_LENGTH || r.media.length > MAX_MEDIA;
-		// редактируется только сообщение с целой заметкой; части всегда уходят новым
-		this.sendBtn.setButtonText(this.whole && prev ? "Обновить в Telegram" : "Отправить");
-		this.sendBtn.setDisabled(empty || tooBig);
-		this.newBtn.setDisabled(empty || tooBig);
-		this.newBtn.buttonEl.toggle(this.whole && !!prev);
+		this.sendBtn.setDisabled(!r.markdown.trim() || tooBig);
 	}
 
-	private async send(forceNew: boolean): Promise<void> {
+	private async send(): Promise<void> {
 		this.sendBtn.setDisabled(true);
-		this.newBtn.setDisabled(true);
-		const ok = await this.plugin.publish(this.file, this.selectedText(), { track: this.whole, forceNew });
+		const ok = await this.plugin.publish(this.file, this.selectedText());
 		if (ok) this.close();
 		else this.refresh();
 	}
